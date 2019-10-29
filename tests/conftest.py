@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock
 
 import arrow
-import pytest
 import numpy as np
+import pytest
 from telegram import Chat, Message, Update
 
 from freqtrade import constants, persistence
@@ -19,9 +19,9 @@ from freqtrade.data.converter import parse_ticker_dataframe
 from freqtrade.edge import Edge, PairInfo
 from freqtrade.exchange import Exchange
 from freqtrade.freqtradebot import FreqtradeBot
+from freqtrade.persistence import Trade
 from freqtrade.resolvers import ExchangeResolver
 from freqtrade.worker import Worker
-
 
 logging.getLogger('').setLevel(logging.INFO)
 
@@ -55,13 +55,16 @@ def patched_configuration_load_config_file(mocker, config) -> None:
     )
 
 
-def patch_exchange(mocker, api_mock=None, id='bittrex') -> None:
+def patch_exchange(mocker, api_mock=None, id='bittrex', mock_markets=True) -> None:
     mocker.patch('freqtrade.exchange.Exchange._load_markets', MagicMock(return_value={}))
     mocker.patch('freqtrade.exchange.Exchange.validate_pairs', MagicMock())
     mocker.patch('freqtrade.exchange.Exchange.validate_timeframes', MagicMock())
     mocker.patch('freqtrade.exchange.Exchange.validate_ordertypes', MagicMock())
     mocker.patch('freqtrade.exchange.Exchange.id', PropertyMock(return_value=id))
     mocker.patch('freqtrade.exchange.Exchange.name', PropertyMock(return_value=id.title()))
+    if mock_markets:
+        mocker.patch('freqtrade.exchange.Exchange.markets',
+                     PropertyMock(return_value=get_markets()))
 
     if api_mock:
         mocker.patch('freqtrade.exchange.Exchange._init_ccxt', MagicMock(return_value=api_mock))
@@ -69,8 +72,9 @@ def patch_exchange(mocker, api_mock=None, id='bittrex') -> None:
         mocker.patch('freqtrade.exchange.Exchange._init_ccxt', MagicMock())
 
 
-def get_patched_exchange(mocker, config, api_mock=None, id='bittrex') -> Exchange:
-    patch_exchange(mocker, api_mock, id)
+def get_patched_exchange(mocker, config, api_mock=None, id='bittrex',
+                         mock_markets=True) -> Exchange:
+    patch_exchange(mocker, api_mock, id, mock_markets)
     config["exchange"]["name"] = id
     try:
         exchange = ExchangeResolver(id, config).exchange
@@ -83,6 +87,11 @@ def patch_wallet(mocker, free=999.9) -> None:
     mocker.patch('freqtrade.wallets.Wallets.get_free', MagicMock(
         return_value=free
     ))
+
+
+def patch_whitelist(mocker, conf) -> None:
+    mocker.patch('freqtrade.freqtradebot.FreqtradeBot._refresh_whitelist',
+                 MagicMock(return_value=conf['exchange']['pair_whitelist']))
 
 
 def patch_edge(mocker) -> None:
@@ -120,6 +129,7 @@ def patch_freqtradebot(mocker, config) -> None:
     patch_exchange(mocker)
     mocker.patch('freqtrade.freqtradebot.RPCManager._init', MagicMock())
     mocker.patch('freqtrade.freqtradebot.RPCManager.send_msg', MagicMock())
+    patch_whitelist(mocker, config)
 
 
 def get_patched_freqtradebot(mocker, config) -> FreqtradeBot:
@@ -287,6 +297,10 @@ def ticker_sell_down():
 
 @pytest.fixture
 def markets():
+    return get_markets()
+
+
+def get_markets():
     return {
         'ETH/BTC': {
             'id': 'ethbtc',
@@ -318,7 +332,8 @@ def markets():
             'symbol': 'TKN/BTC',
             'base': 'TKN',
             'quote': 'BTC',
-            'active': True,
+            # According to ccxt, markets without active item set are also active
+            # 'active': True,
             'precision': {
                 'price': 8,
                 'amount': 8,
@@ -368,7 +383,7 @@ def markets():
             'symbol': 'LTC/BTC',
             'base': 'LTC',
             'quote': 'BTC',
-            'active': False,
+            'active': True,
             'precision': {
                 'price': 8,
                 'amount': 8,
@@ -393,7 +408,7 @@ def markets():
             'symbol': 'XRP/BTC',
             'base': 'XRP',
             'quote': 'BTC',
-            'active': False,
+            'active': True,
             'precision': {
                 'price': 8,
                 'amount': 8,
@@ -418,7 +433,7 @@ def markets():
             'symbol': 'NEO/BTC',
             'base': 'NEO',
             'quote': 'BTC',
-            'active': False,
+            'active': True,
             'precision': {
                 'price': 8,
                 'amount': 8,
@@ -443,7 +458,7 @@ def markets():
             'symbol': 'BTT/BTC',
             'base': 'BTT',
             'quote': 'BTC',
-            'active': True,
+            'active': False,
             'precision': {
                 'base': 8,
                 'quote': 8,
@@ -491,6 +506,50 @@ def markets():
         'LTC/USDT': {
             'id': 'USDT-LTC',
             'symbol': 'LTC/USDT',
+            'base': 'LTC',
+            'quote': 'USDT',
+            'active': False,
+            'precision': {
+                'amount': 8,
+                'price': 8
+            },
+            'limits': {
+                'amount': {
+                    'min': 0.06646786,
+                    'max': None
+                },
+                'price': {
+                    'min': 1e-08,
+                    'max': None
+                }
+            },
+            'info': {},
+        },
+        'LTC/USD': {
+            'id': 'USD-LTC',
+            'symbol': 'LTC/USD',
+            'base': 'LTC',
+            'quote': 'USD',
+            'active': True,
+            'precision': {
+                'amount': 8,
+                'price': 8
+            },
+            'limits': {
+                'amount': {
+                    'min': 0.06646786,
+                    'max': None
+                },
+                'price': {
+                    'min': 1e-08,
+                    'max': None
+                }
+            },
+            'info': {},
+        },
+        'XLTCUSDT': {
+            'id': 'xLTCUSDT',
+            'symbol': 'XLTCUSDT',
             'base': 'LTC',
             'quote': 'USDT',
             'active': True,
@@ -606,6 +665,14 @@ def limit_buy_order_old_partial():
         'remaining': 67.99181073,
         'status': 'open'
     }
+
+
+@pytest.fixture
+def limit_buy_order_old_partial_canceled(limit_buy_order_old_partial):
+    res = deepcopy(limit_buy_order_old_partial)
+    res['status'] = 'canceled'
+    res['fee'] = {'cost': 0.0001, 'currency': 'ETH'}
+    return res
 
 
 @pytest.fixture
@@ -896,12 +963,6 @@ def result(testdatadir):
         return parse_ticker_dataframe(json.load(data_file), '1m', pair="UNITTEST/BTC",
                                       fill_missing=True)
 
-# FIX:
-# Create an fixture/function
-# that inserts a trade of some type and open-status
-# return the open-order-id
-# See tests in rpc/main that could use this
-
 
 @pytest.fixture(scope="function")
 def trades_for_order():
@@ -926,6 +987,110 @@ def trades_for_order():
              'cost': 1.963528,
              'amount': 8.0,
              'fee': {'cost': 0.008, 'currency': 'LTC'}}]
+
+
+@pytest.fixture(scope="function")
+def trades_history():
+    return [{'info': {'a': 126181329,
+                      'p': '0.01962700',
+                      'q': '0.04000000',
+                      'f': 138604155,
+                      'l': 138604155,
+                      'T': 1565798399463,
+                      'm': False,
+                      'M': True},
+             'timestamp': 1565798399463,
+             'datetime': '2019-08-14T15:59:59.463Z',
+             'symbol': 'ETH/BTC',
+             'id': '126181329',
+             'order': None,
+             'type': None,
+             'takerOrMaker': None,
+             'side': 'buy',
+             'price': 0.019627,
+             'amount': 0.04,
+             'cost': 0.00078508,
+             'fee': None},
+            {'info': {'a': 126181330,
+                      'p': '0.01962700',
+                      'q': '0.24400000',
+                      'f': 138604156,
+                      'l': 138604156,
+                      'T': 1565798399629,
+                      'm': False,
+                      'M': True},
+             'timestamp': 1565798399629,
+             'datetime': '2019-08-14T15:59:59.629Z',
+             'symbol': 'ETH/BTC',
+             'id': '126181330',
+             'order': None,
+             'type': None,
+             'takerOrMaker': None,
+             'side': 'buy',
+             'price': 0.019627,
+             'amount': 0.244,
+             'cost': 0.004788987999999999,
+             'fee': None},
+            {'info': {'a': 126181331,
+                      'p': '0.01962600',
+                      'q': '0.01100000',
+                      'f': 138604157,
+                      'l': 138604157,
+                      'T': 1565798399752,
+                      'm': True,
+                      'M': True},
+             'timestamp': 1565798399752,
+             'datetime': '2019-08-14T15:59:59.752Z',
+             'symbol': 'ETH/BTC',
+             'id': '126181331',
+             'order': None,
+             'type': None,
+             'takerOrMaker': None,
+             'side': 'sell',
+             'price': 0.019626,
+             'amount': 0.011,
+             'cost': 0.00021588599999999999,
+             'fee': None},
+            {'info': {'a': 126181332,
+                      'p': '0.01962600',
+                      'q': '0.01100000',
+                      'f': 138604158,
+                      'l': 138604158,
+                      'T': 1565798399862,
+                      'm': True,
+                      'M': True},
+             'timestamp': 1565798399862,
+             'datetime': '2019-08-14T15:59:59.862Z',
+             'symbol': 'ETH/BTC',
+             'id': '126181332',
+             'order': None,
+             'type': None,
+             'takerOrMaker': None,
+             'side': 'sell',
+             'price': 0.019626,
+             'amount': 0.011,
+             'cost': 0.00021588599999999999,
+             'fee': None},
+            {'info': {'a': 126181333,
+                      'p': '0.01952600',
+                      'q': '0.01200000',
+                      'f': 138604158,
+                      'l': 138604158,
+                      'T': 1565798399872,
+                      'm': True,
+                      'M': True},
+             'timestamp': 1565798399872,
+             'datetime': '2019-08-14T15:59:59.872Z',
+             'symbol': 'ETH/BTC',
+             'id': '126181333',
+             'order': None,
+             'type': None,
+             'takerOrMaker': None,
+             'side': 'sell',
+             'price': 0.019626,
+             'amount': 0.011,
+             'cost': 0.00021588599999999999,
+             'fee': None}]
 
 
 @pytest.fixture(scope="function")
@@ -1075,3 +1240,19 @@ def import_fails() -> None:
 
     # restore previous importfunction
     builtins.__import__ = realimport
+
+
+@pytest.fixture(scope="function")
+def open_trade():
+    return Trade(
+        pair='ETH/BTC',
+        open_rate=0.00001099,
+        exchange='bittrex',
+        open_order_id='123456789',
+        amount=90.99181073,
+        fee_open=0.0,
+        fee_close=0.0,
+        stake_amount=1,
+        open_date=arrow.utcnow().shift(minutes=-601).datetime,
+        is_open=True
+    )

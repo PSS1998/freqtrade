@@ -59,12 +59,15 @@ Mandatory parameters are marked as **Required**, which means that they are requi
 | `unfilledtimeout.sell` | 10 | **Required.** How long (in minutes) the bot will wait for an unfilled sell order to complete, after which the order will be cancelled.
 | `bid_strategy.ask_last_balance` | 0.0 | **Required.** Set the bidding price. More information [below](#understand-ask_last_balance).
 | `bid_strategy.use_order_book` | false | Allows buying of pair using the rates in Order Book Bids.
-| `bid_strategy.order_book_top` | 0 | Bot will use the top N rate in Order Book Bids. Ie. a value of 2 will allow the bot to pick the 2nd bid rate in Order Book Bids.
+| `bid_strategy.order_book_top` | 0 | Bot will use the top N rate in Order Book Bids. I.e. a value of 2 will allow the bot to pick the 2nd bid rate in Order Book Bids.
 | `bid_strategy. check_depth_of_market.enabled` | false | Does not buy if the % difference of buy orders and sell orders is met in Order Book.
 | `bid_strategy. check_depth_of_market.bids_to_ask_delta` | 0 | The % difference of buy orders and sell orders found in Order Book. A value lesser than 1 means sell orders is greater, while value greater than 1 means buy orders is higher.
 | `ask_strategy.use_order_book` | false | Allows selling of open traded pair using the rates in Order Book Asks.
 | `ask_strategy.order_book_min` | 0 | Bot will scan from the top min to max Order Book Asks searching for a profitable rate.
 | `ask_strategy.order_book_max` | 0 | Bot will scan from the top min to max Order Book Asks searching for a profitable rate.
+| `ask_strategy.use_sell_signal` | true | Use sell signals produced by the strategy in addition to the `minimal_roi`. [Strategy Override](#parameters-in-the-strategy).
+| `ask_strategy.sell_profit_only` | false | Wait until the bot makes a positive profit before taking a sell decision. [Strategy Override](#parameters-in-the-strategy).
+| `ask_strategy.ignore_roi_if_buy_signal` | false | Do not sell if the buy signal is still active. This setting takes preference over `minimal_roi` and `use_sell_signal`. [Strategy Override](#parameters-in-the-strategy).
 | `order_types` | None | Configure order-types depending on the action (`"buy"`, `"sell"`, `"stoploss"`, `"stoploss_on_exchange"`). [More information below](#understand-order_types). [Strategy Override](#parameters-in-the-strategy).
 | `order_time_in_force` | None | Configure time in force for buy and sell orders. [More information below](#understand-order_time_in_force). [Strategy Override](#parameters-in-the-strategy).
 | `exchange.name` |  | **Required.** Name of the exchange class to use. [List below](#user-content-what-values-for-exchangename).
@@ -72,15 +75,12 @@ Mandatory parameters are marked as **Required**, which means that they are requi
 | `exchange.key` | '' | API key to use for the exchange. Only required when you are in production mode. ***Keep it in secrete, do not disclose publicly.***
 | `exchange.secret` | '' | API secret to use for the exchange. Only required when you are in production mode. ***Keep it in secrete, do not disclose publicly.***
 | `exchange.password` | '' | API password to use for the exchange. Only required when you are in production mode and for exchanges that use password for API requests. ***Keep it in secrete, do not disclose publicly.***
-| `exchange.pair_whitelist` | [] | List of pairs to use by the bot for trading and to check for potential trades during backtesting. Can be overriden by dynamic pairlists (see [below](#dynamic-pairlists)).
-| `exchange.pair_blacklist` | [] | List of pairs the bot must absolutely avoid for trading and backtesting. Can be overriden by dynamic pairlists (see [below](#dynamic-pairlists)).
+| `exchange.pair_whitelist` | [] | List of pairs to use by the bot for trading and to check for potential trades during backtesting. Not used by VolumePairList (see [below](#dynamic-pairlists)).
+| `exchange.pair_blacklist` | [] | List of pairs the bot must absolutely avoid for trading and backtesting (see [below](#dynamic-pairlists)).
 | `exchange.ccxt_config` | None | Additional CCXT parameters passed to the regular ccxt instance. Parameters may differ from exchange to exchange and are documented in the [ccxt documentation](https://ccxt.readthedocs.io/en/latest/manual.html#instantiation)
 | `exchange.ccxt_async_config` | None | Additional CCXT parameters passed to the async ccxt instance. Parameters may differ from exchange to exchange  and are documented in the [ccxt documentation](https://ccxt.readthedocs.io/en/latest/manual.html#instantiation)
 | `exchange.markets_refresh_interval` | 60 | The interval in minutes in which markets are reloaded.
 | `edge` | false | Please refer to [edge configuration document](edge.md) for detailed explanation.
-| `experimental.use_sell_signal` | false | Use your sell strategy in addition of the `minimal_roi`. [Strategy Override](#parameters-in-the-strategy).
-| `experimental.sell_profit_only` | false | Waits until you have made a positive profit before taking a sell decision. [Strategy Override](#parameters-in-the-strategy).
-| `experimental.ignore_roi_if_buy_signal` | false | Does not sell if the buy-signal is still active. Takes preference over `minimal_roi` and `use_sell_signal`. [Strategy Override](#parameters-in-the-strategy).
 | `experimental.block_bad_exchanges` | true | Block exchanges known to not work with freqtrade. Leave on default unless you want to test if that exchange works now.
 | `pairlist.method` | StaticPairList | Use static or dynamic volume-based pairlist. [More information below](#dynamic-pairlists).
 | `pairlist.config` | None | Additional configuration for dynamic pairlists. [More information below](#dynamic-pairlists).
@@ -98,6 +98,7 @@ Mandatory parameters are marked as **Required**, which means that they are requi
 | `strategy` | DefaultStrategy | Defines Strategy class to use.
 | `strategy_path` | null | Adds an additional strategy lookup path (must be a directory).
 | `internals.process_throttle_secs` | 5 | **Required.** Set the process throttle. Value in second.
+| `internals.heartbeat_interval` | 60 | Print heartbeat message every X seconds. Set to 0 to disable heartbeat messages.
 | `internals.sd_notify` | false | Enables use of the sd_notify protocol to tell systemd service manager about changes in the bot state and issue keep-alive pings. See [here](installation.md#7-optional-configure-freqtrade-as-a-systemd-service) for more details.
 | `logfile` | | Specify Logfile. Uses a rolling strategy of 10 files, with 1Mb per file.
 | `user_data_dir` | cwd()/user_data | Directory containing user data. Defaults to `./user_data/`.
@@ -116,9 +117,9 @@ Values set in the configuration file always overwrite values set in the strategy
 * `process_only_new_candles`
 * `order_types`
 * `order_time_in_force`
-* `use_sell_signal` (experimental)
-* `sell_profit_only` (experimental)
-* `ignore_roi_if_buy_signal` (experimental)
+* `use_sell_signal` (ask_strategy)
+* `sell_profit_only` (ask_strategy)
+* `ignore_roi_if_buy_signal` (ask_strategy)
 
 ### Understand stake_amount
 
@@ -134,7 +135,7 @@ To allow the bot to trade all the available `stake_currency` in your account set
 In this case a trade amount is calclulated as:
 
 ```python
-currency_balanse / (max_open_trades - current_open_trades)
+currency_balance / (max_open_trades - current_open_trades)
 ```
 
 ### Understand minimal_roi
@@ -330,7 +331,7 @@ This configuration enables binance, as well as rate limiting to avoid bans from 
     Optimal settings for rate limiting depend on the exchange and the size of the whitelist, so an ideal parameter will vary on many other settings.
     We try to provide sensible defaults per exchange where possible, if you encounter bans please make sure that `"enableRateLimit"` is enabled and increase the `"rateLimit"` parameter step by step.
 
-#### Advanced FreqTrade Exchange configuration
+#### Advanced Freqtrade Exchange configuration
 
 Advanced options can be configured using the `_ft_has_params` setting, which will override Defaults and exchange-specific behaviours.
 
@@ -349,6 +350,13 @@ For example, to test the order type `FOK` with Kraken, and modify candle_limit t
 
 !!! Warning
     Please make sure to fully understand the impacts of these settings before modifying them.
+
+#### Random notes for other exchanges
+
+* The Ocean (ccxt id: 'theocean') exchange uses Web3 functionality and requires web3 package to be installed:
+```shell
+$ pip3 install web3
+```
 
 ### What values can be used for fiat_display_currency?
 
@@ -417,10 +425,16 @@ section of the configuration.
 `askVolume`, `bidVolume` and `quoteVolume`, defaults to `quoteVolume`.
   * There is a possibility to filter low-value coins that would not allow setting a stop loss
 (set `precision_filter` parameter to `true` for this).
+  * `VolumePairList` does not consider `pair_whitelist`, but builds this automatically based the pairlist configuration.
+  * Pairs in `pair_blacklist` are not considered for VolumePairList, even if all other filters would match.
 
 Example:
 
 ```json
+"exchange": {
+    "pair_whitelist": [],
+    "pair_blacklist": ["BNB/BTC"]
+},
 "pairlist": {
         "method": "VolumePairList",
         "config": {

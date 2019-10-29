@@ -15,7 +15,7 @@ from freqtrade import OperationalException
 from freqtrade.configuration import TimeRange
 from freqtrade.data import history
 from freqtrade.data.dataprovider import DataProvider
-from freqtrade.exchange import timeframe_to_minutes
+from freqtrade.exchange import timeframe_to_minutes, timeframe_to_seconds
 from freqtrade.misc import file_dump_json
 from freqtrade.persistence import Trade
 from freqtrade.resolvers import ExchangeResolver, StrategyResolver
@@ -63,9 +63,12 @@ class Backtesting:
         self.config['exchange']['uid'] = ''
         self.config['dry_run'] = True
         self.strategylist: List[IStrategy] = []
-
         self.exchange = ExchangeResolver(self.config['exchange']['name'], self.config).exchange
-        self.fee = self.exchange.get_fee()
+
+        if config.get('fee'):
+            self.fee = config['fee']
+        else:
+            self.fee = self.exchange.get_fee()
 
         if self.config.get('runmode') != RunMode.HYPEROPT:
             self.dataprovider = DataProvider(self.config, self.exchange)
@@ -87,6 +90,8 @@ class Backtesting:
         self.ticker_interval = str(self.config.get('ticker_interval'))
         self.ticker_interval_mins = timeframe_to_minutes(self.ticker_interval)
 
+        # Get maximum required startup period
+        self.required_startup = max([strat.startup_candle_count for strat in self.strategylist])
         # Load one (first) strategy
         self._set_strategy(self.strategylist[0])
 
@@ -99,6 +104,31 @@ class Backtesting:
         # since a "perfect" stoploss-sell is assumed anyway
         # And the regular "stoploss" function would not apply to that case
         self.strategy.order_types['stoploss_on_exchange'] = False
+
+    def load_bt_data(self):
+        timerange = TimeRange.parse_timerange(None if self.config.get(
+            'timerange') is None else str(self.config.get('timerange')))
+
+        data = history.load_data(
+            datadir=Path(self.config['datadir']),
+            pairs=self.config['exchange']['pair_whitelist'],
+            ticker_interval=self.ticker_interval,
+            timerange=timerange,
+            startup_candles=self.required_startup,
+            fail_without_data=True,
+        )
+
+        min_date, max_date = history.get_timeframe(data)
+
+        logger.info(
+            'Loading data from %s up to %s (%s days)..',
+            min_date.isoformat(), max_date.isoformat(), (max_date - min_date).days
+        )
+        # Adjust startts forward if not enough data is available
+        timerange.adjust_start_if_necessary(timeframe_to_seconds(self.ticker_interval),
+                                            self.required_startup, min_date)
+
+        return data, timerange
 
     def _generate_text_table(self, data: Dict[str, Dict], results: DataFrame,
                              skip_nan: bool = False) -> str:
@@ -146,8 +176,8 @@ class Backtesting:
             len(results[results.profit_abs < 0])
         ])
         # Ignore type as floatfmt does allow tuples but mypy does not know that
-        return tabulate(tabular_data, headers=headers,  # type: ignore
-                        floatfmt=floatfmt, tablefmt="pipe")
+        return tabulate(tabular_data, headers=headers,
+                        floatfmt=floatfmt, tablefmt="pipe")  # type: ignore
 
     def _generate_text_table_sell_reason(self, data: Dict[str, Dict], results: DataFrame) -> str:
         """
@@ -185,8 +215,8 @@ class Backtesting:
                 len(results[results.profit_abs < 0])
             ])
         # Ignore type as floatfmt does allow tuples but mypy does not know that
-        return tabulate(tabular_data, headers=headers,  # type: ignore
-                        floatfmt=floatfmt, tablefmt="pipe")
+        return tabulate(tabular_data, headers=headers,
+                        floatfmt=floatfmt, tablefmt="pipe")  # type: ignore
 
     def _store_backtest_result(self, recordfilename: Path, results: DataFrame,
                                strategyname: Optional[str] = None) -> None:
@@ -267,6 +297,11 @@ class Backtesting:
                         # - (Expected abs profit + open_rate + open_fee) / (fee_close -1)
                         closerate = - (trade.open_rate * roi + trade.open_rate *
                                        (1 + trade.fee_open)) / (trade.fee_close - 1)
+
+                        # Use the maximum between closerate and low as we
+                        # cannot sell outside of a candle.
+                        # Applies when using {"xx": -1} as roi to force sells after xx minutes
+                        closerate = max(closerate, sell_row.low)
                     else:
                         # This should not be reached...
                         closerate = sell_row.open
@@ -404,39 +439,18 @@ class Backtesting:
         :return: None
         """
         data: Dict[str, Any] = {}
-        pairs = self.config['exchange']['pair_whitelist']
         logger.info('Using stake_currency: %s ...', self.config['stake_currency'])
         logger.info('Using stake_amount: %s ...', self.config['stake_amount'])
-
-        timerange = TimeRange.parse_timerange(None if self.config.get(
-            'timerange') is None else str(self.config.get('timerange')))
-        data = history.load_data(
-            datadir=Path(self.config['datadir']),
-            pairs=pairs,
-            ticker_interval=self.ticker_interval,
-            timerange=timerange,
-        )
-
-        if not data:
-            logger.critical("No data found. Terminating.")
-            return
         # Use max_open_trades in backtesting, except --disable-max-market-positions is set
         if self.config.get('use_max_market_positions', True):
             max_open_trades = self.config['max_open_trades']
         else:
             logger.info('Ignoring max_open_trades (--disable-max-market-positions was used) ...')
             max_open_trades = 0
+
+        data, timerange = self.load_bt_data()
+
         all_results = {}
-
-        min_date, max_date = history.get_timeframe(data)
-
-        logger.info(
-            'Backtesting with data from %s up to %s (%s days)..',
-            min_date.isoformat(),
-            max_date.isoformat(),
-            (max_date - min_date).days
-        )
-
         for strat in self.strategylist:
             logger.info("Running backtesting for Strategy %s", strat.get_strategy_name())
             self._set_strategy(strat)
@@ -444,6 +458,15 @@ class Backtesting:
             # need to reprocess data every time to populate signals
             preprocessed = self.strategy.tickerdata_to_dataframe(data)
 
+            # Trim startup period from analyzed dataframe
+            for pair, df in preprocessed.items():
+                preprocessed[pair] = history.trim_dataframe(df, timerange)
+            min_date, max_date = history.get_timeframe(preprocessed)
+
+            logger.info(
+                'Backtesting with data from %s up to %s (%s days)..',
+                min_date.isoformat(), max_date.isoformat(), (max_date - min_date).days
+            )
             # Execute backtest and print results
             all_results[self.strategy.get_strategy_name()] = self.backtest(
                 {

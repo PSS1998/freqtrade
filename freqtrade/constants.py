@@ -10,7 +10,7 @@ DEFAULT_TICKER_INTERVAL = 5  # min
 HYPEROPT_EPOCH = 100  # epochs
 RETRY_TIMEOUT = 30  # sec
 DEFAULT_STRATEGY = 'DefaultStrategy'
-DEFAULT_HYPEROPT = 'DefaultHyperOpts'
+DEFAULT_HYPEROPT = 'DefaultHyperOpt'
 DEFAULT_HYPEROPT_LOSS = 'DefaultHyperOptLoss'
 DEFAULT_DB_PROD_URL = 'sqlite:///tradesv3.sqlite'
 DEFAULT_DB_DRYRUN_URL = 'sqlite://'
@@ -114,7 +114,10 @@ CONF_SCHEMA = {
             'properties': {
                 'use_order_book': {'type': 'boolean'},
                 'order_book_min': {'type': 'number', 'minimum': 1},
-                'order_book_max': {'type': 'number', 'minimum': 1, 'maximum': 50}
+                'order_book_max': {'type': 'number', 'minimum': 1, 'maximum': 50},
+                'use_sell_signal': {'type': 'boolean'},
+                'sell_profit_only': {'type': 'boolean'},
+                'ignore_roi_if_buy_signal': {'type': 'boolean'}
             }
         },
         'order_types': {
@@ -144,7 +147,8 @@ CONF_SCHEMA = {
             'properties': {
                 'use_sell_signal': {'type': 'boolean'},
                 'sell_profit_only': {'type': 'boolean'},
-                'ignore_roi_if_buy_signal_true': {'type': 'boolean'}
+                'ignore_roi_if_buy_signal': {'type': 'boolean'},
+                'block_bad_exchanges': {'type': 'boolean'}
             }
         },
         'pairlist': {
@@ -231,7 +235,7 @@ CONF_SCHEMA = {
                 'ccxt_config': {'type': 'object'},
                 'ccxt_async_config': {'type': 'object'}
             },
-            'required': ['name', 'pair_whitelist']
+            'required': ['name']
         },
         'edge': {
             'type': 'object',
@@ -262,6 +266,6 @@ CONF_SCHEMA = {
         'stake_amount',
         'dry_run',
         'bid_strategy',
-        'telegram'
+        'unfilledtimeout',
     ]
 }
