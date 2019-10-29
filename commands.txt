@@ -1,0 +1,27 @@
+# docker commands
+docker logs freqtrade
+docker logs -f freqtrade
+docker restart freqtrade
+docker stop freqtrade
+docker start freqtrade
+
+# docker_update
+docker pull freqtradeorg/freqtrade:develop
+#Optionally tag the repository so the run-commands remain shorter
+docker tag freqtradeorg/freqtrade:develop freqtrade
+
+# run docker
+docker run -d \
+  --name freqtrade \
+  -v ~/.freqtrade/config.json:/freqtrade/config.json \
+  -v ~/.freqtrade/user_data/:/freqtrade/user_data \
+  -v ~/.freqtrade/tradesv3.sqlite:/freqtrade/tradesv3.sqlite \
+  freqtrade --db-url sqlite:///tradesv3.sqlite --strategy BbandRsi
+
+# backtest
+python scripts/download_backtest_data.py --exchange binance --days 1 -t 5m
+python freqtrade -s BbandRsi backtesting --timerange=20190819- --export trades
+python analysis.py 
+
+# hyperopt
+python freqtrade -c config.json hyperopt --customhyperopt awesome_hyperopt.py -e 5000 --spaces all
